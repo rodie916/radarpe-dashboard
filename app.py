@@ -15,10 +15,11 @@ IMPACTO = {'R': 'Riesgo', 'O': 'Oportunidad', 'N': 'Neutral'}
 def cargar():
     noticias = pd.read_csv('noticias.csv', parse_dates=['fecha'])
     pred = pd.read_csv('pred_sector_impacto.csv')
-    return noticias, pred
+    ent = pd.read_csv('entidades_lista.csv')                          # id, tipo (ORG/LOC), nombre: salen del NER
+    return noticias, pred, ent
 
 
-noticias, pred = cargar()
+noticias, pred, ent = cargar()
 
 # ---------- Filtros (barra lateral) ----------
 st.sidebar.title('RadarPe')
@@ -28,9 +29,13 @@ if len(rango) != 2:                                                   # mientras
     st.stop()
 sectores = st.sidebar.multiselect('Sector', list(SECTORES), default=['MIN'], format_func=SECTORES.get)
 impactos = st.sidebar.multiselect('Impacto', list(IMPACTO), default=list(IMPACTO), format_func=IMPACTO.get)
+regiones = st.sidebar.multiselect('Región (vacío = todas)', sorted(ent.loc[ent['tipo'] == 'LOC', 'nombre'].unique()))
 
 # ---------- Aplicar filtros ----------
 en_fecha = noticias[(noticias['fecha'].dt.date >= rango[0]) & (noticias['fecha'].dt.date <= rango[1])]
+if regiones:                                                          # si se eligió alguna región
+    ids_region = ent.loc[(ent['tipo'] == 'LOC') & ent['nombre'].isin(regiones), 'id']   # noticias que la mencionan
+    en_fecha = en_fecha[en_fecha['id'].isin(ids_region)]              # se queda solo con esas
 elegidas = pred[pred['sector'].isin(sectores) & pred['impacto'].isin(impactos)]
 res = en_fecha.merge(elegidas, on='id')                               # una fila por par noticia-sector
 
@@ -48,6 +53,12 @@ if not res.empty:
     tabla = pd.crosstab(res['sector'].map(SECTORES), res['impacto'].map(IMPACTO))
     st.subheader('Impacto por sector')
     st.bar_chart(tabla)
+
+# ---------- Organizaciones más mencionadas (NER) ----------
+orgs = ent[(ent['tipo'] == 'ORG') & ent['id'].isin(res['id'])]['nombre'].value_counts().head(10)   # top 10 en las noticias filtradas
+if not orgs.empty:
+    st.subheader('Organizaciones más mencionadas')
+    st.bar_chart(orgs, horizontal=True)
 
 # ---------- Eventos (grupos del clustering) ----------
 st.subheader('Eventos')
